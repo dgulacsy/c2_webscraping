@@ -1,0 +1,219 @@
+---
+title: "C2 Webscraping Project 1"
+author: "Dominik Gulacsy"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: hpstr
+    highlight: github
+---
+
+```{r setup, include=FALSE}
+```
+
+## My Website of Choice to Scrape
+
+I used [**The Verge**](https://www.theverge.com/) as a target site for my webscraping endeavors. I opted for this site because it's content for me was relevant and the basic HTML structure of article listings was in order with my expectations regarding complexity.
+
+
+# My Webscraping Script
+  
+My script consist of 3 main components that I structured in three functions to make the script more readable and transparent. It also aims to help debugging since it the separation was based on specific functionalities.
+  
+I used the following libraries to write the script:
+```{r echo=FALSE}
+suppressWarnings(suppressMessages(library(rvest)))
+suppressWarnings(suppressMessages(library(selectr)))
+suppressWarnings(suppressMessages(library(prettydoc)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(data.table)))
+suppressWarnings(suppressMessages(library(knitr)))
+suppressWarnings(suppressMessages(library(kableExtra)))
+```
+```
+library(rvest)
+library(selectr)
+library(prettydoc)
+library(dplyr)
+library(data.table)
+```
+
+Now, lets look at the three major parts of the script:
+
+**1. Geting the number of pages for a given URL**
+```{r}
+get_num_pages<-function(url){
+  #get the maximum number of pages to iterate through
+  doc <- read_html(url)
+  pages <-
+    doc %>% 
+    html_nodes('.c-pagination__text') 
+  
+  if (length(pages) != 0) { #if there is pagination
+    pages <- pages %>% 
+      html_text() %>% 
+      strsplit("of") %>% 
+      unlist() %>% 
+      nth(2) %>% 
+      as.numeric()   
+  } else { #if there is no pagination
+    pages <- 1
+  }
+  return(pages)
+}
+```
+
+To test this function let's see if it works on Verge searching for the keyword "zoom". It should return 199, and it does indeed:
+```{r}
+get_num_pages("https://www.theverge.com/search?q=zoom")
+```
+
+**2. Scraping a page on Verge based on URL**
+
+With this function I can scrape the title, article link, author, author link, date of publication, number of comments, link to comments for every listed article on the page.
+```{r}
+scrape_page <- function(url){
+  p<-read_html(url)
+  write_html(p,'p.html')
+  
+  # Get container divs
+  containers <-
+    p %>% html_nodes('.c-compact-river__entry')
+  
+  # Iterate through the containers and extract html tags
+  list_of_df <-
+    lapply(containers, function(container){
+      
+      title <- 
+        container %>% 
+        html_nodes('.c-entry-box--compact__title') %>% 
+        html_nodes('a') %>% 
+        html_text()
+      
+      article_link <-
+        container %>% 
+        html_nodes('.c-entry-box--compact__title') %>% 
+        html_nodes('a') %>% 
+        html_attr("href")
+      
+      bylines <- 
+        container %>% 
+        html_nodes('.c-byline__item')
+      
+      author <- 
+        container %>% 
+        html_nodes('.c-byline__author-name') %>% 
+        html_text()
+      if (length(author) ==0) {
+        author <- ''
+      }
+      
+      author_link <-
+        bylines[1] %>% 
+        html_nodes('a') %>% 
+        html_attr("href")
+      if (length(author_link) ==0) {
+        author_link <- ''
+      }
+      
+      dt <- 
+        bylines[2] %>% 
+        html_nodes('time') %>% 
+        html_attr('datetime')
+      if (length(dt) ==0) {
+        dt <- ''
+      }
+      
+      comments <-
+        container %>% 
+        html_nodes('.c-entry-stat__comment-data') %>%
+        nth(1) %>%
+        html_text() %>% 
+        trimws()
+      if (length(comments) != 0) {
+        comments <- as.numeric(comments)
+        comments_link <- 
+          container %>%
+          html_nodes('.c-entry-stat--words') %>% 
+          html_nodes('a') %>% 
+          html_attr("href")
+        # OR
+        # comments_link <- paste0(article_link,'#comments')
+      } else {
+        comments <- ''
+        comments_link <- ''
+      }
+      
+      # it will be a one row data.frame
+      return(data.frame('date'=dt, 'title'=title, 'article_link'= article_link,'author'=author, 'author_link'=author_link, 'comments'=comments, 'comments_link'=comments_link))
+    })
+  df_page = rbindlist(list_of_df)
+  return(df_page)
+}
+```
+
+We can also test this for the keyword "linux" for example to see if it works appropriately:
+```{r results='hide'}
+data<-scrape_page('https://www.theverge.com/search?q=zoom+linux')
+data
+```
+```{r echo=FALSE}
+data %>%
+  kable() %>%
+  kable_paper("hover", full_width = F)
+```
+
+**3. Automated scraper with keywords and page limit selector**
+
+This last function is responsible for uniting the above mentioned two functions to create an automated process of website scraping. This function supports multiple keywords and contains the page limit as an optional parameter. This means that if there is no page limit given then the function will scrape the data for all pages available for the given keyword(s).
+
+```{r}
+scrape_data_verge <- function(keywords,till_page=0){
+  # saving the domain name to variable
+  d='https://www.theverge.com'
+  
+  #creating the query string from keyword(s)
+  #keywords=c()
+  kwq=paste0('q=',keywords[1])
+  if (length(keywords)>1){
+    for (kw in keywords[2:length(keywords)]) {
+      kwq=paste0(kwq,'+',as.character(kw))
+    }
+  }
+ 
+  # create url from domain and query string to get number of pages
+  url=paste0(d,'/search?',kwq)
+  pages <- get_num_pages(url)
+  
+  # scrape all pages if not specified till which page should scrape
+  if (till_page > 0) {
+    pages <- till_page
+  }
+  
+  # Create urls for iterative scraping
+  urls=c()
+  for (page in 1:pages){
+    url=paste0(d,'/search?page=',page,'&',kwq)
+    urls <- urls %>% append(url)
+  }
+  #print(urls)
+  
+  # iterate through pages and get article data in df format
+  df_list_urls <- lapply(urls, scrape_page)
+  
+  return(rbindlist(df_list_urls)) # unite dfs
+
+}
+```
+
+Finally, to see this function in work as well, let's scrape The Verge for the keyword "ubuntu" both till page 2 and till the last page available:
+```{r}
+data1<-scrape_data_verge("ubuntu",2)
+data2<-scrape_data_verge("ubuntu")
+data1 %>%
+  kable() %>%
+  kable_paper("hover", full_width = F)
+data2 %>%
+  kable() %>%
+  kable_paper("hover", full_width = F)
+```

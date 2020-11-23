@@ -1,0 +1,88 @@
+# Project 1 for C2 - Webscraping
+
+#install.packages("rvest")
+#install.packages("selectr")
+
+library(rvest)
+library(selectr)
+
+get_data_from_url <- function(k,n){
+  
+}
+
+# download html document
+url <- 'https://www.theverge.com/search?q=linux'
+p<-read_html(url)
+
+write_html(p,'p.html')
+
+# Get container divs
+containers <-
+  p %>% html_nodes('.c-compact-river__entry')
+
+dt <- containers[1] %>% 
+  html_nodes('.c-byline__item')
+
+dt[2] %>% 
+  html_nodes('time') %>% 
+  html_attr('datetime')
+# Iterate through the containers and extract html tags
+
+list_of_df <- 
+  lapply(containers, function(x){
+    
+    titles <- 
+      x %>% 
+      html_nodes('.c-entry-box--compact__title') %>% 
+      html_nodes('a') %>% 
+      html_text()
+    
+    authors <- 
+      x %>% 
+      html_nodes('.c-byline__author-name') %>% 
+      html_text()
+    
+    dt <- x %>% 
+      html_nodes('.c-byline__item')
+    
+    dt <- dt[2] %>% 
+      html_nodes('time') %>% 
+      html_attr('datetime')
+    
+    url <- x %>%
+      html_nodes('time') %>% 
+      html_attr('datetime')
+    
+    # times <- 
+    #   x %>% 
+    #   html_nodes('.time') %>% 
+    #   html_text()
+    # if (length(times) ==0) {
+    #   times <- ''
+    # }
+    # 
+    # my_link <- 
+    #   x %>% 
+    #   html_nodes('.entry-title-link') %>% 
+    #   html_attr('href')
+    # 
+    # text_summary <- 
+    #   x %>% 
+    #   html_nodes('p') %>% 
+    #   html_text()
+    # if (length(text_summary) ==0) {
+    #   text_summary <- ''
+    # }
+    # 
+    # categories <- 
+    #   x %>% html_nodes('.categories') %>% 
+    #   html_text()
+    # if (length(categories) ==0) {
+    #   categories <- ''
+    # }
+  
+    # it will be a one row data.frame
+    return(data.frame('title'=titles))
+  })
+
+# , 'links'= my_link, 'summary'= text_summary, 'categories' = categories, 'times'=times)
